@@ -5,6 +5,9 @@ import android.os.Bundle
 import android.widget.*
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class AddMoodActivity : AppCompatActivity() {
 
@@ -27,43 +30,51 @@ class AddMoodActivity : AppCompatActivity() {
         val modeType = intent.getStringExtra("modeType") ?: "Add"
         val isNewNote = modeType == "Add"
         var id = 0
+        var oldMoodEntry: MoodEntry? = null
 
         if (!isNewNote) {
-            id = intent.getIntExtra("id", 0)
+            // Если это не новая запись (редактирование существующей).
+            id = intent.getIntExtra("id", 0) // Из Intent извлекается ID записи настроения.
             editTextDate.setText(intent.getStringExtra("date"))
             editTextTime.setText(intent.getStringExtra("time"))
             editTextDescription.setText(intent.getStringExtra("description"))
             val mood = intent.getStringExtra("mood")
             val spinnerPosition = adapter.getPosition(mood)
             spinnerMood.setSelection(spinnerPosition)
+
+            //Intent позволяет передать все необходимые данные из одной активности в другую, чтобы пользователь мог
+           // редактировать существующую запись настроения, видя все текущие данные этой записи.
         }
 
+        // Устанавливаем слушатель для кнопки "Сохранить".
         buttonSave.setOnClickListener {
             val date = editTextDate.text.toString()
             val time = editTextTime.text.toString()
             val mood = spinnerMood.selectedItem.toString()
             val description = editTextDescription.text.toString()
 
-            if (date.isNotEmpty() && time.isNotEmpty() && mood.isNotEmpty() && description.isNotEmpty()) {
-                if (isNewNote) { //новая заметка
-                    val newMoodEntry = MoodEntry(date = date, time = time, mood = mood, description = description)
-                    moodViewModel.insert(newMoodEntry)
-
-                } else { //обновление заметки
-                    val updatedMoodEntry = MoodEntry(id = id, date = date, time = time, mood = mood, description = description)
-                    moodViewModel.update(updatedMoodEntry)
-
-                    //в интент добавляется информация об успешном обновлении
-                    val resultIntent = Intent()
-                    resultIntent.putExtra("isUpdated", true)
-                    resultIntent.putExtra("id", id)
-                    setResult(RESULT_OK, resultIntent)
-                }
-                finish()
+            //если создние
+            if (isNewNote) {
+                // Создаём новый объект MoodEntry с полученными данными.
+                val newMoodEntry = MoodEntry(date = date, time = time, mood = mood, description = description, status = " ")
+                //вставляем в бд
+                moodViewModel.insert(newMoodEntry)
+                Toast.makeText(this, "Данные добавлены", Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(this, "Заполните все поля", Toast.LENGTH_SHORT).show()
+                // Если это редактирование существующей записи.
+                val updatedMoodEntry = MoodEntry(
+                    id = id,
+                    date = date,
+                    time = time,
+                    mood = mood,
+                    description = description,
+                    // Обновляем статус записи с текущей датой и временем.
+                    status = "Обновлено:  ${SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format( Date() )}"
+                )
+                moodViewModel.update(updatedMoodEntry)
+                Toast.makeText(this, "Данные изменены", Toast.LENGTH_SHORT).show()
             }
+            finish()
         }
     }
 }
-
