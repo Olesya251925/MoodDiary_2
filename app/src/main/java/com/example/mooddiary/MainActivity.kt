@@ -14,18 +14,16 @@ import android.text.Editable
 import android.text.TextWatcher
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import java.io.File
-import java.io.FileOutputStream
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -37,29 +35,28 @@ class MainActivity : AppCompatActivity() {
     private lateinit var editTextSearch: EditText
     private lateinit var buttonSearch: ImageButton
     private lateinit var buttonFilter: ImageButton
-    // Инициализация кнопки для отображения графика
     private lateinit var buttonShowChart: FloatingActionButton
 
     private var isAscending = true
 
-    companion object {
-        private const val REQUEST_NOTIFICATION_PERMISSION = 1001
-        const val CHANNEL_ID = "MoodDiaryChannel"
-        private const val CHANNEL_NAME = "Уведомления для Дневника настроения"
-        private const val CHANNEL_DESCRIPTION = "Канал для уведомлений приложения Дневник настроения"
-    }
-
-    // Обновляет статус записи и сохраняет его в файл после завершения операции добавления или редактирования записи
     private val addMoodLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             val data = result.data
             val id = data?.getIntExtra("id", -1) ?: -1
             val isUpdated = data?.getBooleanExtra("isUpdated", false) ?: false
             if (isUpdated && id != -1) {
-                val status = "Обновлено: ${SimpleDateFormat("dd-MM-yyyy HH:mm:ss", Locale.getDefault()).format(Date())}"
-                adapter.updateStatus(id, status) // Вызываем метод у адаптера для обновления статуса заметки в списке
-                saveStatusToFile(id, status) // Вызов сохранения в файл
+                val updatedMood = adapter.getMoodById(id)?.copy()
+                if (updatedMood != null) {
+                    moodViewModel.update(updatedMood)
+                }
             }
+        }
+    }
+
+    private val requestNotificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted ->
+        if (isGranted) {
+            createNotificationChannel()
+            createAndSendNotification()
         }
     }
 
@@ -72,42 +69,44 @@ class MainActivity : AppCompatActivity() {
         editTextSearch = findViewById(R.id.editTextSearch)
         buttonSearch = findViewById(R.id.buttonSearch)
         buttonFilter = findViewById(R.id.buttonFilter)
-
-        // Найдем кнопку в макете и инициализируем ее
         buttonShowChart = findViewById(R.id.buttonShowChart)
 
         adapter = MoodAdapter(listOf(), { mood ->
-            moodViewModel.delete(mood) // Вызываем метод для удаления
+            moodViewModel.delete(mood) // удаляем запись
         }, { mood ->
-            onMoodClick(mood) // Вызываем при нажатии на заметку
+            onMoodClick(mood) // // Открываем экран редактирования
         }, this)
 
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(this)
 
-        // Наблюдатель для обновления списка (если произошло изменение)
+        //слушатель для обновления -  обновляем адаптер с новыми данными настроений
         moodViewModel.allMoods.observe(this, { moods ->
             moods?.let { adapter.updateMoods(it) }
         })
 
-        // Для создания заметки
+        //кнопка добавления нового настроения
         fab.setOnClickListener {
             val intent = Intent(this, AddMoodActivity::class.java)
             addMoodLauncher.launch(intent)
         }
 
+        //обработчик по поиску
         buttonSearch.setOnClickListener {
-            filterMoods(editTextSearch.text.toString())
+            filterMoods(editTextSearch.text.toString()) // // Фильтрация списка настроений.
         }
 
+        //сортировка
         buttonFilter.setOnClickListener {
             toggleFilter()
         }
 
+        //кнопка графика
         buttonShowChart.setOnClickListener {
-            val intent = Intent(this, ChartActivity::class.java)
-            startActivity(intent)
+            showChart()
         }
+
+        checkAndStartNotifications()
 
         // Слушатель текста в поиске
         editTextSearch.addTextChangedListener(object : TextWatcher {
@@ -119,113 +118,81 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
-
-        loadStatusesFromFile()
-
-        // Создаем канал уведомлений
-        createNotificationChannel()
-
-        // Запускаем уведомления
-        startNotifications()
     }
 
-    // Обработчик нажатия на элемент в списке (для редактирования)
+    //редактирование заметки
     private fun onMoodClick(mood: MoodEntry) {
-        val intent = Intent(this, AddMoodActivity::class.java)
-        intent.putExtra("modeType", "Edit")
-        intent.putExtra("date", mood.date)
-        intent.putExtra("time", mood.time)
-        intent.putExtra("description", mood.description)
-        intent.putExtra("mood", mood.mood)
-        intent.putExtra("id", mood.id)
+        val intent = Intent(this, AddMoodActivity::class.java).apply {
+            // Добавление данных настроения в намерение для передачи в AddMoodActivity.
+            putExtra("modeType", "Edit") // Указание режима редактирования.
+            putExtra("id", mood.id)
+            putExtra("date", mood.date)
+            putExtra("time", mood.time)
+            putExtra("description", mood.description)
+            putExtra("mood", mood.mood)
+        }
+        // Запуск активности AddMoodActivity с ожиданием результата.
         addMoodLauncher.launch(intent)
     }
 
-    // Для поиска записей в списке
-    private fun filterMoods(query: String) {
-        val filteredMoods = moodViewModel.allMoods.value?.filter {
-            it.mood.contains(query, ignoreCase = true)
-        }
-        adapter.updateMoods(filteredMoods ?: listOf())
-    }
-
-    // Для очистки в поиске
+    // Сбрасывает фильтр настроений, отображая все записи.
     private fun resetFilter() {
-        val allMoods = moodViewModel.allMoods.value
-        adapter.updateMoods(allMoods ?: listOf())
+        val allMoods = moodViewModel.allMoods.value // Получаем текущий список настроений из LiveData в ViewModel.
+        adapter.updateMoods(allMoods ?: listOf()) // Обновляем адаптер полным списком настроений
     }
 
-    // Переключатель сортировки
+    //посиск по названию
+    private fun filterMoods(query: String) {
+        val filteredMoods = moodViewModel.allMoods.value?.filter { //получаем весь список настроений
+            it.mood.contains(query, ignoreCase = true) // Фильтруем список настроений, проверяя, содержит ли настроение строку запроса, игнорируя регистр.
+        }
+        adapter.updateMoods(filteredMoods ?: listOf()) // Обновляем адаптер отфильтрованным списком
+    }
+
+    // Переключение сортировки.
     private fun toggleFilter() {
         val sortedMoods = moodViewModel.allMoods.value?.sortedWith(compareBy(
-            { parseDate(it.date) },
-            { it.time }
+            { parseDate(it.date) }, // Сначала сортируем по дате.
+            { it.time } // Затем сортируем по времени.
         ))
 
-        if (isAscending) {
-            adapter.updateMoods(sortedMoods ?: listOf())
+        if (isAscending) { // Проверяем текущий порядок сортировки.
+            adapter.updateMoods(sortedMoods ?: listOf()) // Если порядок восходящий, обновляем адаптер отсортированным списком.
         } else {
-            adapter.updateMoods(sortedMoods?.reversed() ?: listOf())
+            adapter.updateMoods(sortedMoods?.reversed() ?: listOf()) // Если порядок нисходящий, обновляем адаптер перевёрнутым отсортированным списком.
         }
-        isAscending = !isAscending
+        isAscending = !isAscending // Переключаем флаг isAscending.
     }
 
-    // Строку в дату
+
+    // Строку в дату.
     private fun parseDate(dateString: String): Date? {
-        val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault())
+        val dateFormat = SimpleDateFormat("dd.MM.yyyy", Locale.getDefault()) // Создаём форматтер для преобразования строки в дату.
         return try {
-            dateFormat.parse(dateString)
+            dateFormat.parse(dateString) // Преобразуем строку в дату.
         } catch (e: Exception) {
-            null
+            null // Возвращаем null, если преобразование не удалось.
         }
     }
 
-    // Сохраняем статус в ресурсы файлов, используя идентификатор записи в качестве имени файла
-    private fun saveStatusToFile(id: Int, status: String) {
-        val fileName = "status_$id.txt"
-        val fileContents = status
-        FileOutputStream(File(filesDir, fileName)).use {
-            it.write(fileContents.toByteArray())
-        }
+
+    private fun showChart() {
+        val intent = Intent(this, ChartActivity::class.java)
+        startActivity(intent)
     }
 
-    private fun loadStatusesFromFile() {
-        val statusMap: MutableMap<Int, String> = mutableMapOf() // Пустая карта для хранения статусов
-        val filesDir = filesDir
-        for (file in filesDir.listFiles()) {
-            if (file.name.startsWith("status_")) {
-                val id = file.name.substringAfter("status_").substringBefore(".txt").toInt()
-                val status = file.readText()
-                statusMap[id] = status
-            }
-        }
-        adapter.updateStatuses(statusMap)
-    }
-
-    // Запускаем уведомления
-    private fun startNotifications() {
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-            createAndSendNotification()
+    private fun checkAndStartNotifications() {
+        // Проверяем, предоставлено ли разрешение на отправку уведомлений.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            // Если разрешение не предоставлено, запускаем процесс запроса разрешения.
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
-            ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), REQUEST_NOTIFICATION_PERMISSION)
+            // Если разрешение уже предоставлено, создаем канал уведомлений и отправляем уведомление.
+            createNotificationChannel()
+            createAndSendNotification()
         }
     }
 
-    // Обработка результата запроса разрешений
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        when (requestCode) {
-            REQUEST_NOTIFICATION_PERMISSION -> {
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    createAndSendNotification()
-                } else {
-                    // Обрабатываем отказ в разрешении
-                }
-            }
-        }
-    }
-
-    // Создаем и отправляем уведомление
     private fun createAndSendNotification() {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
@@ -238,10 +205,10 @@ class MainActivity : AppCompatActivity() {
             pendingIntent
         )
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.notifications)
-            .setContentTitle("Не забудьте сегодня добавить ваше настроение")
-            .setContentText("Приглашаем вас заполнить ваше настроение сегодня")
+        val notification = NotificationCompat.Builder(this, "MoodDiaryChannel")
+            .setSmallIcon(R.drawable.not)
+            .setContentTitle("Дневник настроения")
+            .setContentText("Добавьте какое настроение у вас сегодня :) ")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -251,17 +218,19 @@ class MainActivity : AppCompatActivity() {
         notificationManager.notify(1, notification)
     }
 
-    // Создание канала уведомлений
     private fun createNotificationChannel() {
+        // Проверяем версию ОС, чтобы убедиться, что мы находимся на Android 8.0 (API уровень 26) или выше.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Создаём канал уведомлений.
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_DEFAULT
+                "MoodDiaryChannel", // Идентификатор канала.
+                "Уведомления для Дневника настроения", // Имя канала.
+                NotificationManager.IMPORTANCE_DEFAULT // Важность канала.
             ).apply {
-                description = CHANNEL_DESCRIPTION
+                description = "Канал для уведомлений приложения Дневник настроения" // Описание канала.
             }
 
+            // Получаем NotificationManager и создаём канал уведомлений.
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
