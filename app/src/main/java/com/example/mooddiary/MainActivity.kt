@@ -39,6 +39,7 @@ class MainActivity : AppCompatActivity() {
 
     private var isAscending = true
 
+    // метод отвечает за обработку результата, возвращаемого из активности AddMoodActivity 
     private val addMoodLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
             val data = result.data
