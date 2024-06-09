@@ -71,7 +71,7 @@
         android:layout_alignParentBottom="true"
         android:layout_marginEnd="80dp"
         android:layout_marginBottom="16dp"
-        android:src="@drawable/sta"
+        android:src="@drawable/stat"
         app:tint="@color/color" />
 
     <!-- Кнопка для добавления нового настроения -->
