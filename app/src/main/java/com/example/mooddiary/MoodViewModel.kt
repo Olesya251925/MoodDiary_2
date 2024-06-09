@@ -3,17 +3,14 @@ package com.example.mooddiary
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
-import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.viewModelScope
-import androidx.room.Room
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.*
+
 
 class MoodViewModel(application: Application) : AndroidViewModel(application) {
     private val repository: MoodRepository
-    val allMoods: LiveData<List<MoodEntry>>
+    val allMoods: LiveData<List<MoodEntry>> //представляет собой список всех записей настроений
 
     init {
         // Получаем DAO для работы с базой данных и создаем репозиторий
@@ -32,4 +29,5 @@ class MoodViewModel(application: Application) : AndroidViewModel(application) {
     fun delete(moodEntry: MoodEntry) = viewModelScope.launch(Dispatchers.IO){
         repository.delete(moodEntry)
     }
+
 }
