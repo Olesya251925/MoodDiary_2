@@ -10,7 +10,6 @@ class MoodRepository(private val moodDao: MoodDao) {
     suspend fun insert(moodEntry: MoodEntry) {
         moodDao.insert(moodEntry)
     }
-
     suspend fun update(moodEntry: MoodEntry) {
         moodDao.update(moodEntry)
     }
