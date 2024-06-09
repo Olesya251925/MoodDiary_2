@@ -57,7 +57,7 @@
             android:layout_marginTop="8dp"
             android:text="Description" />
 
-        <!-- Новое текстовое поле для отображения статуса создания или обновления -->
+        <!-- Новое текстовое поле для отображения обновления -->
         <TextView
             android:id="@+id/statusTextView"
             android:layout_width="363dp"
